@@ -57,25 +57,24 @@ var NeuralNetwork = function () {
     key: 'trainDefaults',
     get: function get() {
       return {
-        iterations: 20000,
-        errorThresh: 0.005,
-        log: false,
-        logPeriod: 10,
-        learningRate: 0.3,
-        callback: null,
-        callbackPeriod: 10,
-        trainTimeMs: -Infinity
+        iterations: 20000, // the maximum times to iterate the training data
+        errorThresh: 0.005, // the acceptable error percentage from training data
+        log: false, // true to use console.log, when a function is supplied it is used
+        logPeriod: 10, // iterations between logging out
+        learningRate: 0.3, // multiply's against the input and the delta then adds to momentum
+        momentum: 0.1, // multiply's against the specified "change" then adds to learning rate for change
+        callback: null, // a periodic call back that can be triggered while training
+        callbackPeriod: 10, // the number of iterations through the training data between callback calls
+        timeout: Infinity // the max number of milliseconds to train for
       };
     }
   }, {
     key: 'defaults',
     get: function get() {
       return {
-        learningRate: 0.3,
-        momentum: 0.1,
-        binaryThresh: 0.5,
-        hiddenLayers: null,
-        activation: 'sigmoid'
+        binaryThresh: 0.5, // ¯\_(ツ)_/¯
+        hiddenLayers: [3], // array of ints for the sizes of the hidden layers in the network
+        activation: 'sigmoid' // Supported activation types ['sigmoid', 'relu', 'leaky-relu', 'tanh']
       };
     }
   }]);
@@ -87,6 +86,8 @@ var NeuralNetwork = function () {
 
     Object.assign(this, this.constructor.defaults, options);
     this.hiddenSizes = options.hiddenLayers;
+    this.trainOpts = {};
+    this.updateTrainingOptions(Object.assign({}, this.constructor.trainDefaults, options));
 
     this.sizes = null;
     this.outputLayer = null;
@@ -109,14 +110,15 @@ var NeuralNetwork = function () {
 
   /**
    *
-   * @param {Number[]} sizes
+   * Expects this.sizes to have been set
    */
 
 
   _createClass(NeuralNetwork, [{
-    key: 'initialize',
-    value: function initialize(sizes) {
-      this.sizes = sizes;
+    key: '_initialize',
+    value: function _initialize() {
+      if (!this.sizes) throw new Error('Sizes must be set before initializing');
+
       this.outputLayer = this.sizes.length - 1;
       this.biases = []; // weights for bias nodes
       this.weights = [];
@@ -148,9 +150,16 @@ var NeuralNetwork = function () {
 
       this.setActivation();
     }
+
+    /**
+     *
+     * @param supported input: ['sigmoid', 'relu', 'leaky-relu', 'tanh']
+     */
+
   }, {
     key: 'setActivation',
-    value: function setActivation() {
+    value: function setActivation(activation) {
+      this.activation = activation ? activation : this.activation;
       switch (this.activation) {
         case 'sigmoid':
           this.runInput = this.runInput || this.runInputSigmoid;
@@ -288,33 +297,119 @@ var NeuralNetwork = function () {
     /**
      *
      * @param data
-     * @returns sizes
+     * Verifies network sizes are initilaized
+     * If they are not it will initialize them based off the data set.
      */
 
   }, {
-    key: '_getSizesFromData',
-    value: function _getSizesFromData(data) {
-      var sizes = [];
-      var inputSize = data[0].input.length;
-      var outputSize = data[0].output.length;
-      var hiddenSizes = this.hiddenSizes;
-      if (!hiddenSizes) {
-        sizes.push(Math.max(3, Math.floor(inputSize / 2)));
+    key: '_verifyIsInitialized',
+    value: function _verifyIsInitialized(data) {
+      var _this = this;
+
+      if (this.sizes) return;
+
+      this.sizes = [];
+      this.sizes.push(data[0].input.length);
+      if (!this.hiddenSizes) {
+        this.sizes.push(Math.max(3, Math.floor(data[0].input.length / 2)));
       } else {
-        hiddenSizes.forEach(function (size) {
-          sizes.push(size);
+        this.hiddenSizes.forEach(function (size) {
+          _this.sizes.push(size);
         });
       }
+      this.sizes.push(data[0].output.length);
 
-      sizes.unshift(inputSize);
-      sizes.push(outputSize);
-      return sizes;
+      this._initialize();
+    }
+
+    /**
+     *
+     * @param options
+     *    Supports all `trainDefaults` properties
+     *    also supports:
+     *       learningRate: (number),
+     *       momentum: (number),
+     *       activation: ['sigmoid', 'relu', 'leaky-relu', 'tanh']
+     */
+
+  }, {
+    key: 'updateTrainingOptions',
+    value: function updateTrainingOptions(opts) {
+      if (opts.iterations) {
+        this.trainOpts.iterations = opts.iterations;
+      }
+      if (opts.errorThresh) {
+        this.trainOpts.errorThresh = opts.errorThresh;
+      }
+      if (opts.log) {
+        this._setLogMethod(opts.log);
+      }
+      if (opts.logPeriod) {
+        this.trainOpts.logPeriod = opts.logPeriod;
+      }
+      if (opts.learningRate) {
+        this.trainOpts.learningRate = opts.learningRate;
+      }
+      if (opts.momentum) {
+        this.trainOpts.momentum = opts.momentum;
+      }
+      if (opts.callback) {
+        this.trainOpts.callback = opts.callback;
+      }
+      if (opts.callbackPeriod) {
+        this.trainOpts.callbackPeriod = opts.callbackPeriod;
+      }
+      if (opts.timeout) {
+        this.trainOpts.timeout = opts.timeout;
+      }
+      if (opts.activation) {
+        this.activation = opts.activation;
+      }
+    }
+
+    /**
+     *
+     *  Gets JSON of trainOpts object
+     *    NOTE: Activation is stored directly on JSON object and not in the training options
+     */
+
+  }, {
+    key: '_getTrainOptsJSON',
+    value: function _getTrainOptsJSON() {
+      var results = {};
+      if (this.trainOpts.iterations) {
+        results.iterations = this.trainOpts.iterations;
+      }
+      if (this.trainOpts.errorThresh) {
+        results.errorThresh = this.trainOpts.errorThresh;
+      }
+      if (this.trainOpts.logPeriod) {
+        results.logPeriod = this.trainOpts.logPeriod;
+      }
+      if (this.trainOpts.learningRate) {
+        results.learningRate = this.trainOpts.learningRate;
+      }
+      if (this.trainOpts.momentum) {
+        results.momentum = this.trainOpts.momentum;
+      }
+      if (this.trainOpts.callback) {
+        results.callback = this.trainOpts.callback;
+      }
+      if (this.trainOpts.callbackPeriod) {
+        results.callbackPeriod = this.trainOpts.callbackPeriod;
+      }
+      if (this.trainOpts.timeout) {
+        results.timeout = this.trainOpts.timeout;
+      }
+      if (this.trainOpts.log) {
+        results.log = true;
+      }
+      return results;
     }
 
     /**
      *
      * @param log
-     * if true passed in console.log is used
      * if a method is passed in method is used
      * if false passed in nothing is logged
      * @returns error
@@ -323,9 +418,13 @@ var NeuralNetwork = function () {
   }, {
     key: '_setLogMethod',
     value: function _setLogMethod(log) {
-      if (typeof log === 'function') return log;
-      if (log) return console.log;
-      return false;
+      if (typeof log === 'function') {
+        this.trainOpts.log = log;
+      } else if (log) {
+        this.trainOpts.log = console.log;
+      } else {
+        this.trainOpts.log = false;
+      }
     }
 
     /**
@@ -337,10 +436,10 @@ var NeuralNetwork = function () {
 
   }, {
     key: '_calculateTrainingError',
-    value: function _calculateTrainingError(data, learningRate) {
+    value: function _calculateTrainingError(data) {
       var sum = 0;
       for (var i = 0; i < data.length; ++i) {
-        sum += this.trainPattern(data[i].input, data[i].output, learningRate);
+        sum += this._trainPattern(data[i].input, data[i].output);
       }
       return sum / data.length;
     }
@@ -352,56 +451,54 @@ var NeuralNetwork = function () {
      */
 
   }, {
-    key: '_checkTrainingTick',
-    value: function _checkTrainingTick(data, status, options) {
+    key: '_trainingTick',
+    value: function _trainingTick(data, status) {
       status.iterations++;
-      status.error = this._calculateTrainingError(data, options.learningRate);
+      status.error = this._calculateTrainingError(data);
 
-      if (options.log && status.iterations % options.logPeriod === 0) {
-        options.log('iterations: ' + status.iterations + ', training error: ' + status.error);
+      if (this.trainOpts.log && status.iterations % this.trainOpts.logPeriod === 0) {
+        this.trainOpts.log('iterations: ' + status.iterations + ', training error: ' + status.error);
       }
 
-      if (options.callback && status.iterations % options.callbackPeriod === 0) {
-        options.callback(Object.assign(status));
+      if (this.trainOpts.callback && status.iterations % this.trainOpts.callbackPeriod === 0) {
+        this.trainOpts.callback(Object.assign(status));
       }
     }
 
     /**
      *
      * @param data
-     * @param _options
+     * @param options
      * @returns {{error: number, iterations: number}}
      */
 
   }, {
     key: 'train',
     value: function train(data) {
-      var _options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 
-      var options = Object.assign({}, this.constructor.trainDefaults, _options);
+      this.updateTrainingOptions(options);
       data = this.formatData(data);
-      options.log = this._setLogMethod(options.log);
-      options.learningRate = _options.learningRate || this.learningRate || options.learningRate;
-      var endTime = Date.now() + options.trainTimeMs;
+      var endTime = Date.now() + this.trainOpts.timeout;
+
       var status = {
         error: 1,
         iterations: 0
       };
 
-      if (this.sizes === null) {
-        var sizes = this._getSizesFromData(data);
-        this.initialize(sizes);
+      this._verifyIsInitialized(data);
+
+      while (status.iterations < this.trainOpts.iterations && status.error > this.trainOpts.errorThresh && Date.now() < endTime) {
+        this._trainingTick(data, status);
       }
-      while (status.iterations < options.iterations && status.error > options.errorThresh && Date.now() > endTime) {
-        this._checkTrainingTick(data, status, options);
-      }
+
       return status;
     }
 
     /**
      *
      * @param data
-     * @param _options
+     * @param options
      * @param cb
      * @returns {{error: number, iterations: number}}
      */
@@ -409,34 +506,28 @@ var NeuralNetwork = function () {
   }, {
     key: 'trainAsync',
     value: function trainAsync(data) {
-      var _this = this;
+      var _this2 = this;
 
-      var _options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 
       return new Promise(function (resolve, reject) {
-        var options = Object.assign({}, _this.constructor.trainDefaults, _options);
-        data = _this.formatData(data);
-        options.log = _this._setLogMethod(options.log);
-        options.learningRate = _options.learningRate || _this.learningRate || options.learningRate;
-        var endTime = Date.now() + options.trainTimeMs;
+        _this2.updateTrainingOptions(options);
+        data = _this2.formatData(data);
+        var endTime = Date.now() + _this2.trainOpts.timeout;
 
         var status = {
           error: 1,
           iterations: 0
         };
 
-        if (_this.sizes === null) {
-          var sizes = _this._getSizesFromData(data);
-          _this.initialize(sizes);
-        }
+        _this2._verifyIsInitialized(data);
 
-        var items = new Array(options.iterations);
+        var items = new Array(_this2.trainOpts.iterations);
         var thaw = new _thaw2.default(items, {
           delay: true,
           each: function each() {
-            _this._checkTrainingTick(data, status, options);
-
-            if (status.error < options.errorThresh || Date.now() < endTime) {
+            _this2._trainingTick(data, status);
+            if (status.error < _this2.trainOpts.errorThresh || Date.now() > endTime) {
               thaw.stop();
             }
           },
@@ -453,20 +544,18 @@ var NeuralNetwork = function () {
      *
      * @param input
      * @param target
-     * @param learningRate
      */
 
   }, {
-    key: 'trainPattern',
-    value: function trainPattern(input, target, learningRate) {
-      learningRate = learningRate || this.learningRate;
+    key: '_trainPattern',
+    value: function _trainPattern(input, target) {
 
       // forward propagate
       this.runInput(input);
 
       // back propagate
       this.calculateDeltas(target);
-      this.adjustWeights(learningRate);
+      this.adjustWeights();
 
       var error = (0, _mse2.default)(this.errors[this.outputLayer]);
       return error;
@@ -582,12 +671,12 @@ var NeuralNetwork = function () {
 
     /**
      *
-     * @param learningRate
+     * Changes weights of networks
      */
 
   }, {
     key: 'adjustWeights',
-    value: function adjustWeights(learningRate) {
+    value: function adjustWeights() {
       for (var layer = 1; layer <= this.outputLayer; layer++) {
         var incoming = this.outputs[layer - 1];
 
@@ -597,12 +686,12 @@ var NeuralNetwork = function () {
           for (var k = 0; k < incoming.length; k++) {
             var change = this.changes[layer][node][k];
 
-            change = learningRate * delta * incoming[k] + this.momentum * change;
+            change = this.trainOpts.learningRate * delta * incoming[k] + this.trainOpts.momentum * change;
 
             this.changes[layer][node][k] = change;
             this.weights[layer][node][k] += change;
           }
-          this.biases[layer][node] += learningRate * delta;
+          this.biases[layer][node] += this.trainOpts.learningRate * delta;
         }
       }
     }
@@ -616,7 +705,7 @@ var NeuralNetwork = function () {
   }, {
     key: 'formatData',
     value: function formatData(data) {
-      var _this2 = this;
+      var _this3 = this;
 
       if (!Array.isArray(data)) {
         // turn stream datum into array
@@ -633,7 +722,7 @@ var NeuralNetwork = function () {
           }));
         }
         data = data.map(function (datum) {
-          var array = _lookup2.default.toArray(_this2.inputLookup, datum.input);
+          var array = _lookup2.default.toArray(_this3.inputLookup, datum.input);
           return Object.assign({}, datum, { input: array });
         }, this);
       }
@@ -645,7 +734,7 @@ var NeuralNetwork = function () {
           }));
         }
         data = data.map(function (datum) {
-          var array = _lookup2.default.toArray(_this2.outputLookup, datum.output);
+          var array = _lookup2.default.toArray(_this3.outputLookup, datum.output);
           return Object.assign({}, datum, { output: array });
         }, this);
       }
@@ -666,7 +755,7 @@ var NeuralNetwork = function () {
   }, {
     key: 'test',
     value: function test(data) {
-      var _this3 = this;
+      var _this4 = this;
 
       data = this.formatData(data);
 
@@ -685,13 +774,13 @@ var NeuralNetwork = function () {
       var sum = 0;
 
       var _loop = function _loop(i) {
-        var output = _this3.runInput(data[i].input);
+        var output = _this4.runInput(data[i].input);
         var target = data[i].output;
 
         var actual = void 0,
             expected = void 0;
         if (isBinary) {
-          actual = output[0] > _this3.binaryThresh ? 1 : 0;
+          actual = output[0] > _this4.binaryThresh ? 1 : 0;
           expected = target[0];
         } else {
           actual = output.indexOf((0, _max2.default)(output));
@@ -826,7 +915,8 @@ var NeuralNetwork = function () {
         layers: layers,
         outputLookup: !!this.outputLookup,
         inputLookup: !!this.inputLookup,
-        activation: this.activation
+        activation: this.activation,
+        trainOpts: this._getTrainOptsJSON()
       };
     }
 
@@ -839,7 +929,8 @@ var NeuralNetwork = function () {
   }, {
     key: 'fromJSON',
     value: function fromJSON(json) {
-      this.initialize(json.sizes);
+      this.sizes = json.sizes;
+      this._initialize();
 
       for (var i = 0; i <= this.outputLayer; i++) {
         var layer = json.layers[i];
@@ -848,17 +939,17 @@ var NeuralNetwork = function () {
         } else if (i === this.outputLayer && (!layer[0] || json.outputLookup)) {
           this.outputLookup = _lookup2.default.lookupFromHash(layer);
         }
-        if (layer > 0) {
+        if (i > 0) {
           var nodes = Object.keys(layer);
           this.sizes[i] = nodes.length;
           for (var j in nodes) {
             var node = nodes[j];
-            this.biases[i] = layer[node].bias;
+            this.biases[i][j] = layer[node].bias;
             this.weights[i][j] = (0, _toArray2.default)(layer[node].weights);
           }
         }
       }
-
+      this.updateTrainingOptions(json.trainOpts);
       this.setActivation();
       return this;
     }
