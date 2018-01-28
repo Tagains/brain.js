@@ -38,11 +38,8 @@ export default class NeuralNetwork {
   constructor(options = {}) {
     Object.assign(this, this.constructor.defaults, options);
     this.hiddenSizes = options.hiddenLayers;
-
-    let backCompat = {};
-    if (options.learningRate) backCompat.learningRate = options.learningRate;
-    if (options.momentum) backCompat.momentum = options.momentum;
-    this.trainOpts = Object.assign({}, this.constructor.trainDefaults, backCompat);
+    this.trainOpts = {};
+    this.updateTrainingOptions(Object.assign({}, this.constructor.trainDefaults, options));
 
     this.sizes = null;
     this.outputLayer = null;
@@ -106,7 +103,8 @@ export default class NeuralNetwork {
    *
    * @param supported input: ['sigmoid', 'relu', 'leaky-relu', 'tanh']
    */
-  setActivation() {
+  setActivation(activation) {
+    this.activation = (activation) ? activation : this.activation;
     switch (this.activation) {
       case 'sigmoid':
         this.runInput = this.runInput || this.runInputSigmoid;
@@ -264,7 +262,7 @@ export default class NeuralNetwork {
    *       momentum: (number),
    *       activation: ['sigmoid', 'relu', 'leaky-relu', 'tanh']
    */
-  _updateTrainingOptions(opts) {
+  updateTrainingOptions(opts) {
     if (opts.iterations) { this.trainOpts.iterations = opts.iterations; }
     if (opts.errorThresh) { this.trainOpts.errorThresh = opts.errorThresh; }
     if (opts.log) { this._setLogMethod(opts.log); }
@@ -273,7 +271,7 @@ export default class NeuralNetwork {
     if (opts.momentum) { this.trainOpts.momentum = opts.momentum; }
     if (opts.callback) { this.trainOpts.callback = opts.callback; }
     if (opts.callbackPeriod) { this.trainOpts.callbackPeriod = opts.callbackPeriod; }
-    if (opts.timeout) { this.trainOpts.callbackPeriod = opts.timeout; }
+    if (opts.timeout) { this.trainOpts.timeout = opts.timeout; }
     if (opts.activation) { this.activation = opts.activation; }
   }
 
@@ -352,7 +350,7 @@ export default class NeuralNetwork {
    * @returns {{error: number, iterations: number}}
    */
   train(data, options = {}) {
-    this._updateTrainingOptions(options);
+    this.updateTrainingOptions(options);
     data = this.formatData(data);
     const endTime = Date.now() + this.trainOpts.timeout;
 
@@ -379,7 +377,7 @@ export default class NeuralNetwork {
    */
   trainAsync(data, options = {}) {
     return new Promise((resolve, reject) => {
-      this._updateTrainingOptions(options);
+      this.updateTrainingOptions(options);
       data = this.formatData(data);
       const endTime = Date.now() + this.trainOpts.timeout;
 
@@ -779,7 +777,7 @@ export default class NeuralNetwork {
         }
       }
     }
-    this._updateTrainingOptions(json.trainOpts)
+    this.updateTrainingOptions(json.trainOpts)
     this.setActivation();
     return this;
   }
